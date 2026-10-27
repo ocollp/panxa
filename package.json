@@ -4,14 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node scripts/dev.mjs",
+    "dev": "vite",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test": "node --test tests/*.test.js",
     "format": "prettier --write src server scripts tests index.html package.json vite.config.js",
     "dev:web": "vite",
     "dev:api": "node --env-file-if-exists=.env server/index.js",
-    "start": "NODE_ENV=production node --env-file-if-exists=.env server/index.js"
+    "start": "vite --host 127.0.0.1"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.3",

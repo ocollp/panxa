@@ -35,8 +35,6 @@ import {
 } from "./storage.js";
 import { backup, exportCSV, exportPDF } from "./export.js";
 import "./style.css";
-import { SheetsBoundary } from "./SheetsConnection.jsx";
-import { ServerImport } from "./ServerImport.jsx";
 import { AuthBoundary } from "./auth.jsx";
 import { LegacyImport } from "./LegacyImport.jsx";
 import { Modal, Editor, Calendar } from "./components.jsx";
@@ -113,7 +111,7 @@ function App({ user, logout }) {
             setTab("diary");
           }}
         >
-          <img src="/leaf.svg" alt="" />
+          <img src={`${import.meta.env.BASE_URL}leaf.svg`} alt="" />
           <span>
             PANXA<small>El teu diari digestiu</small>
           </span>
@@ -176,7 +174,6 @@ function App({ user, logout }) {
         </aside>
         <main>
           <LegacyImport onImported={refresh} />
-          <ServerImport onImported={refresh} />
           <div className="page-heading">
             <div>
               <p className="eyebrow">EL TEU DIARI, SENSE COMPLICACIONS</p>
@@ -603,15 +600,15 @@ function App({ user, logout }) {
           <div className="privacy-box">
             <ShieldCheck />
             <p>
-              Els registres es desen al teu full de Google Sheets. El servidor
-              de PANXA comprova la sessió i envia els canvis al full configurat.
-              Mantén el full privat: qualsevol persona amb qui el comparteixis
-              també podrà veure les dades.
+              Els registres es desen directament al teu full privat de Google
+              Sheets. Google comprova que el teu compte hi tingui accés. Mantén
+              el full privat: qualsevol persona amb qui el comparteixis també
+              podrà veure les dades.
             </p>
           </div>
           <p className="muted">
             Pots consultar les dades des de qualsevol dispositiu que es connecti
-            al mateix servidor de PANXA. Desa una còpia de seguretat
+            a PANXA amb el mateix compte de Google. Desa una còpia de seguretat
             periòdicament. Les dades locals de la versió anterior només es
             traslladen quan ho confirmes.
           </p>
@@ -703,10 +700,6 @@ function App({ user, logout }) {
 }
 createRoot(document.getElementById("root")).render(
   <AuthBoundary>
-    {({ user, logout }) => (
-      <SheetsBoundary user={user} logout={logout}>
-        <App key={user.email} user={user} logout={logout} />
-      </SheetsBoundary>
-    )}
+    {({ user, logout }) => <App key={user.email} user={user} logout={logout} />}
   </AuthBoundary>,
 );

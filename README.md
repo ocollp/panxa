@@ -1,95 +1,97 @@
 # PANXA · El teu diari digestiu
 
-Diari digestiu en català amb accés privat de Google. React + Vite, API Fastify, sessions locals i registres a Google Sheets. La identitat es verifica amb Google; no es demana accés a Gmail, Drive ni Sheets.
+Diari en català per registrar només els dies amb molèsties. React + Vite,
+Google Identity Services i Google Sheets. Web estàtica preparada per a
+**https://ocollp.github.io/panxa/**, independent de Money Tracker.
 
-## Arrencar
-
-Cal Node.js 22.13 o superior i npm.
+## Desenvolupament local
 
 ```sh
-npm install
+nvm use
+npm ci
+cp .env.example .env # només si encara no tens .env; no sobreescriguis el teu
 npm run dev
 ```
 
-Obre **http://127.0.0.1:5173**. La comanda inicia web i API (port 3002); Ctrl+C les atura. Cal reiniciar-la després de canviar `.env`. No iniciïs només Vite: les dades necessiten l’API.
+Obre http://127.0.0.1:5173/panxa/.
+Configura a `.env`: `GOOGLE_CLIENT_ID`, `GOOGLE_SPREADSHEET_ID` i `ALLOWED_EMAIL`.
+L’identificador OAuth és públic: **mai introdueixis un client secret**.
+El `.env` està exclòs de Git. La compilació només inclou aquests tres valors
+públics, no la resta de variables del fitxer.
 
-La configuració local d’aquest ordinador ja és a `.env`, exclòs de Git. S’ha reutilitzat únicament l’identificador públic OAuth de Money Tracker i s’ha configurat el compte que has autoritzat. Money Tracker no s’ha modificat.
+## Publicació a GitHub Pages, pas a pas
 
-En un altre entorn, copia `.env.example` a `.env` i configura:
+1. A `ocollp/panxa`, obre **Settings → Pages → Source → GitHub Actions**.
+2. Obre **Settings → Secrets and variables → Actions → Variables**.
+3. Amb **New repository variable**, crea aquestes tres variables copiant els
+   valors del teu `.env` local (sense cometes):
+   - `GOOGLE_CLIENT_ID`: identificador OAuth acabat en `.apps.googleusercontent.com`.
+   - `GOOGLE_SPREADSHEET_ID`: només l’identificador que hi ha entre `/d/` i `/edit` a l’URL del full.
+   - `ALLOWED_EMAIL`: el compte de Google que fas servir per al diari.
+4. A Google Cloud, al mateix client OAuth de tipus Web, comprova que hi ha
+   `https://ocollp.github.io` a **Orígenes autorizados de JavaScript**.
+   No hi afegeixis `/panxa/`. Conserva els orígens de Money Tracker i localhost.
+5. Activa **Google Sheets API** al projecte de Google Cloud. Si el consentiment
+   està en mode de proves, afegeix el compte autoritzat als usuaris de prova.
+6. Fes commit i push a `main`. A **Actions**, espera que **Deploy PANXA to GitHub Pages**
+   acabi en verd. El workflow comprova les proves, compila i publica només `dist/`.
+7. Obre https://ocollp.github.io/panxa/, prem **Entrar amb Google** i concedeix el permís de Sheets.
+   Desa un dia i comprova que apareix a la pestanya **PANXA** del full.
 
-- `GOOGLE_CLIENT_ID`: client OAuth de tipus **Aplicació web** de Google.
-- `ALLOWED_EMAIL`: l’únic correu que podrà iniciar sessió; no és una variable VITE.
-- `APP_ORIGIN`: origen exacte de la web, sense barra final. En local: `http://127.0.0.1:5173`.
-- `API_PORT`: 3002 per defecte.
-- `DATABASE_PATH`: sessions i arxiu de registres anteriors; per defecte `./data/panxa.sqlite`.
-- `GOOGLE_SPREADSHEET_ID`: identificador del full privat. El full facilitat ja està configurat a `.env`.
+No cal servidor, SQLite ni un ordinador encès per utilitzar la versió publicada.
+Si canvies una variable de GitHub, torna a executar el workflow perquè el canvi
+s’incorpori a la compilació. Si falta una variable, la compilació falla explícitament.
 
-No cal cap client secret per a aquest flux d’identitat. Si falta configuració, l’accés queda tancat.
+## Privacitat i sessió
 
-## Si Google bloqueja l’entrada
+El codi i la configuració de la web són públics. La comprovació del correu a la
+interfície no és una barrera de seguretat: **Google protegeix les dades amb els
+permisos del full**. Mantén-lo privat, amb accés restringit al teu compte, i no
+el publiquis al web. L’identificador del full no concedeix accés per si sol.
 
-Al projecte del client OAuth, obre Google Cloud Console → Google Auth Platform → Clients i selecciona el client web. A **Authorized JavaScript origins**, comprova que hi hagi exactament `http://127.0.0.1:5173`. Si fas servir `localhost`, caldrà autoritzar aquest origen i ajustar `APP_ORIGIN` també. No s’han modificat els orígens de Google Cloud automàticament.
+Google concedeix permís de lectura/escriptura de fulls; PANXA només opera sobre
+el fitxer configurat i la pestanya PANXA. No demana accés a Gmail.
+El token es manté únicament en memòria: no es desa en cookies, localStorage,
+sessionStorage ni Git. En recarregar o tornar a obrir la web cal prémer Entrar
+amb Google. Quan caduca, es pot reconnectar conservant el formulari obert.
+Tancar sessió esborra el token i les dades de la pantalla, però no tanca la sessió
+general de Google ni revoca els permisos concedits a altres apps.
 
-Si l’aplicació OAuth està en mode de prova, afegeix el teu compte als usuaris de prova. El nom de consentiment pot continuar sent el de Money Tracker mentre es reutilitzi aquell client. Per tenir una identitat PANXA separada, crea un client OAuth propi i canvia `GOOGLE_CLIENT_ID`.
+Money Tracker i PANXA comparteixen origen a GitHub Pages; les rutes no són una
+frontera de seguretat del navegador. No es desen tokens en emmagatzematge compartit.
+Cal confiar en el codi de totes les webs publicades en aquest origen.
 
-Torna a carregar PANXA i prem el botó de Google. L’entrada real s’ha de completar amb el teu compte. Les proves automatitzades no substitueixen aquesta comprovació del client OAuth i dels seus orígens.
+## Dades, còpies i limitacions
 
-## Dades i privacitat
+Els registres existents al full es mantenen. El full no s’esborra ni se substitueix.
+La pestanya PANXA es crea amb el primer desat si no existeix. Formats desconeguts
+o dates duplicades generen un error abans d’escriure.
 
-- L’API comprova la signatura, l’audiència, l’emissor i la caducitat del token amb `google-auth-library`, i valida el correu verificat autoritzat i un nonce d’un sol ús.
-- Les sessions duren 12 hores, es guarden al servidor amb el token resumit criptogràficament i s’envien en una galeta HttpOnly i SameSite=Strict; en producció, també Secure. El tancament de sessió revoca la sessió al servidor.
-- Cada operació consulta només dades del `sub` de Google verificat. El client no pot triar el propietari d’una petició. Les escriptures exigeixen l’origen configurat i JSON.
-- Els registres nous es desen al full de Google Sheets configurat, no a SQLite ni a IndexedDB. El servidor els envia a Google amb la teva autorització. Els tokens de Sheets es mantenen només en memòria fins que caduquen, tanques sessió o es reinicia el servidor; mai a localStorage ni al disc.
-- En local, el servidor és aquest ordinador. Per accedir-hi des de diversos dispositius cal desplegar el mateix servidor amb HTTPS i disc persistent; això encara no s’ha fet.
-- L’accés de Google protegeix l’API. Mantén el full amb accés general restringit i sense compartir-lo amb altres persones si només tu has de veure les dades. Qui tingui accés administratiu al servidor pot llegir l’arxiu SQLite anterior. Les exportacions són fitxers llegibles; desa-les en un lloc privat.
+CRUD amb comprovació de conflictes, calendari, informe mensual, CSV per Excel,
+PDF i còpies JSON amb importació. Dates a partir de l’1 d’octubre de 2026.
+Els CSV descarregats són instantànies: cal tornar a exportar després de canviar dades.
+Les estadístiques compten dies registrats; no infereixen absència de símptomes ni causalitat.
 
-### Recuperar els registres anteriors
+Requereix Internet. No hi ha guardat local silenciós quan Google falla.
+Les escriptures es serialitzen dins la pestanya i, amb Web Locks, entre pestanyes
+del mateix navegador. Google Sheets no proporciona aquí una transacció entre
+lectura i escriptura: evita editar alhora des de dos dispositius o manualment al full.
+Descarrega còpies periòdiques. Si un desat queda sense confirmar per un error de
+xarxa, actualitza el diari abans de repetir-lo.
 
-Després d’entrar, PANXA detecta els registres IndexedDB del mateix navegador i origen. Prem **Traslladar al meu compte**. Només es retiren del navegador els registres que Google Sheets confirma que ha desat o que ja són idèntics. Si hi ha registres de l’anterior servidor SQLite, apareix un segon avís per traslladar-los; l’arxiu SQLite es conserva com a còpia anterior. Els conflictes es mantenen localment i es poden descarregar. La migració no és automàtica. Les dades anteriors continuen sent dades locals accessibles al perfil del navegador fins que les traslladis; la nova sessió no les xifra retroactivament.
+Les dades antigues exclusives de SQLite no s’envien a Pages: exporta-les amb la
+versió anterior i importa la còpia JSON. Els registres ja traslladats a Sheets
+apareixeran automàticament. Els fitxers `server/` es conserven per compatibilitat
+amb l’arxiu local i les proves; no formen part de la web publicada.
 
-Les còpies JSON anteriors continuen sent compatibles. La importació afegeix dates noves, sense sobreescriure les existents. El diari admet dates des de l’1 d’octubre de 2026 fins avui.
-
-### Còpies de seguretat
-
-Continua descarregant JSON des de l’aplicació. Per copiar SQLite directament, atura el servidor abans de copiar `data/panxa.sqlite`; si el copies en calent, també necessites una còpia coherent dels fitxers WAL. No pugis `data/` ni `.env` al repositori.
-
-## Producció
+## Verificació
 
 ```sh
+npm test
 npm run build
-npm start
+npm run preview -- --port 5173
 ```
 
-Configura `APP_ORIGIN=https://el-teu-domini`, les variables OAuth i un `DATABASE_PATH` en un disc persistent. L’API serveix `dist/` i les rutes `/api` en el mateix origen; posa un proxy HTTPS al davant. El procés s’escolta a 127.0.0.1 per defecte; `HOST` permet adaptar-lo a un contenidor. Producció es nega a arrencar sense Google, correu autoritzat o origen HTTPS. No és un desplegament estàtic de GitHub Pages.
-
-## Verificació i codi
-
-`npm test` comprova validació, compatibilitat, CSV/PDF, emmagatzematge local anterior i API: sessions, credencials falses, correus aliens, CSRF, aïllament, importació atòmica, conflictes, caducitat i persistència després de reiniciar. `npm run build` comprova la compilació.
-
-- `src/auth.jsx`: entrada amb Google i límit de sessió de la interfície.
-- `src/api.js`, `src/storage.js`: accés autenticat a l’API.
-- `src/LegacyImport.jsx`, `src/legacy-storage.js`: recuperació del diari local anterior.
-- `server/app.js`: autenticació i rutes protegides.
-- `server/store.js`: sessions i registres SQLite.
-- `src/domain.js`, `src/export.js`: validació i informes.
-
-La connexió real amb el full queda pendent de concedir el permís de Google Sheets amb el compte de la propietària. No hi ha cap mode de simulació d’accés disponible a la web; els verificadors simulats només s’injecten en les proves.
-
-Referència: [verificació de tokens de Google al servidor](https://developers.google.com/identity/gsi/web/guides/verify-google-id-token).
-
-## Connectar el full de Google Sheets
-
-Configura a `.env` la variable `GOOGLE_SPREADSHEET_ID` amb l’identificador del teu full. Per exemple, en un enllaç `https://docs.google.com/spreadsheets/d/IDENTIFICADOR/edit`, copia només `IDENTIFICADOR`. Mantén el full privat.
-
-1. Inicia PANXA i entra amb el compte autoritzat.
-2. Prem **Connectar Google Sheets** i autoritza el mateix compte. El permís OAuth de fulls de càlcul és ampli; PANXA limita les peticions al fitxer configurat al servidor. No es demanen permisos de Gmail.
-3. Si Google indica que l’API no està habilitada, activa **Google Sheets API** al projecte del client OAuth. Si està en mode de prova, mantén el compte com a usuari de prova.
-4. Desa un dia i comprova’l a la pestanya **PANXA**. Es crea en el primer desat, sense modificar les altres pestanyes. No s’ha escrit al full des d’aquesta sessió de desenvolupament.
-
-La pestanya té sis columnes: Data, Què vaig menjar, Símptomes, Intensitat (0-10), Temps fins als símptomes i Notes. Si ja hi ha una pestanya PANXA amb capçaleres desconegudes o registres invàlids, l’aplicació s’atura sense sobreescriure-la. El CSV mensual continua disponible; Sheets és la font principal de dades, no un CSV sincronitzat.
-
-Les peticions de desat se serialitzen en una única instància de servidor i cada canvi es fa amb un batchUpdate atòmic. Es comprova que el registre no hagi canviat abans d’editar-lo. Google Sheets no ofereix un bloqueig transaccional que cobreixi lectura i escriptura: evita editar la pestanya manualment mentre fas servir PANXA i executa una sola instància de l’API. No es reintenten automàticament escriptures amb resultat incert: actualitza el diari abans de reintentar-les.
-
-Cal tornar a connectar Sheets quan caduca el permís o es reinicia el servidor. L’app manté el formulari obert en el cas de caducitat del permís de Sheets, però recarregar la pàgina perd el text encara no desat. Desar requereix connexió a Internet; no hi ha un desat local alternatiu silenciós.
-
-Encara cal desplegar l’API per accedir a PANXA des de fora d’aquest ordinador. Desar les dades a Drive no converteix aquesta versió en una web estàtica de GitHub Pages.
+La previsualització és a http://127.0.0.1:5173/panxa/ (atura abans el servidor dev).
+Les proves de Google usen respostes simulades; la primera autorització i el desat
+real al lloc publicat s’han de comprovar amb el compte propietari.

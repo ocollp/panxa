@@ -1,222 +1,145 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ShieldCheck } from "lucide-react";
-import { api } from "./api.js";
-let googleScript;
-export function loadGoogle() {
-  if (window.google?.accounts?.id) return Promise.resolve();
-  if (googleScript) return googleScript;
-  googleScript = new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = "https://accounts.google.com/gsi/client?hl=ca";
-    script.async = true;
-    script.defer = true;
-    const timer = setTimeout(() => {
-      script.remove();
-      googleScript = null;
-      reject(
-        new Error(
-          "Google triga a respondre. Comprova la connexió i torna-ho a provar.",
-        ),
-      );
-    }, 15000);
-    script.onload = () => {
-      clearTimeout(timer);
-      resolve();
-    };
-    script.onerror = () => {
-      clearTimeout(timer);
-      script.remove();
-      googleScript = null;
-      reject(new Error("No s’ha pogut carregar l’accés amb Google."));
-    };
-    document.head.appendChild(script);
-  });
-  return googleScript;
-}
-function Login({ onLogin }) {
-  const button = useRef();
-  const [status, setStatus] = useState("loading");
+import { config } from "./config.js";
+import { session, readRecords } from "./storage.js";
+import { loadGoogle } from "./google-loader.js";
+import { Modal } from "./components.jsx";
+export function AuthBoundary({ children }) {
+  const [user, setUser] = useState(null);
+  const [connected, setConnected] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
+  const client = useRef(null);
   useEffect(() => {
     let active = true;
-    const controller = new AbortController();
-    setStatus("loading");
-    setError("");
+    setReady(false);
+    const expired = () => setConnected(false);
+    window.addEventListener("panxa:sheets-required", expired);
     (async () => {
       try {
-        const config = await api("/auth/config", {
-          signal: controller.signal,
-          notify: false,
-        });
-        if (!active) return;
-        if (!config.configured) {
-          setStatus("unconfigured");
-          return;
-        }
+        if (!config.clientId || !config.spreadsheetId || !config.allowedEmail)
+          throw new Error(
+            "Falta configurar l’accés de Google per a aquesta web.",
+          );
         await loadGoogle();
         if (!active) return;
-        window.google.accounts.id.initialize({
+        client.current = window.google.accounts.oauth2.initTokenClient({
           client_id: config.clientId,
-          nonce: config.nonce,
-          auto_select: false,
-          ux_mode: "popup",
+          scope: "openid email https://www.googleapis.com/auth/spreadsheets",
+          include_granted_scopes: false,
+          login_hint: config.allowedEmail,
           callback: async (response) => {
             if (!active) return;
-            setStatus("checking");
-            setError("");
             try {
-              const result = await api("/auth/google", {
-                method: "POST",
-                body: { credential: response.credential },
-                notify: false,
-                signal: controller.signal,
-              });
-              if (active) onLogin(result.user);
+              const next = await session.connect(response);
+              await readRecords();
+              if (!active) return;
+              setUser(next);
+              setConnected(true);
+              setError("");
+              window.dispatchEvent(new Event("panxa:sheet-connected"));
             } catch (e) {
-              if (active) {
-                setError(e.message);
-                setStatus("error");
-              }
+              session.clear();
+              if (active)
+                setError(e.message || "No s’ha pogut connectar amb Google.");
+            } finally {
+              if (active) setBusy(false);
+            }
+          },
+          error_callback: () => {
+            if (active) {
+              setBusy(false);
+              setError(
+                "La finestra de Google s’ha tancat o bloquejat. Torna-ho a provar.",
+              );
             }
           },
         });
-        button.current.replaceChildren();
-        window.google.accounts.id.renderButton(button.current, {
-          theme: "outline",
-          size: "large",
-          text: "signin_with",
-          shape: "pill",
-          locale: "ca",
-          width: 280,
-        });
-        setStatus("ready");
+        setReady(true);
       } catch (e) {
-        if (active) {
-          setError(e.message);
-          setStatus("error");
-        }
+        if (active) setError(e.message);
       }
     })();
     return () => {
       active = false;
-      controller.abort();
+      session.clear();
+      window.removeEventListener("panxa:sheets-required", expired);
     };
   }, [retry]);
-  return (
-    <main className="login-page">
-      <section className="login-card">
-        <img src="/leaf.svg" alt="" className="login-logo" />
-        <p className="eyebrow">EL TEU ESPAI PERSONAL</p>
-        <h1>PANXA</h1>
-        <p className="login-subtitle">El teu diari digestiu</p>
-        <p className="muted">
-          Un espai privat per escoltar el teu cos.
-          <br />
-          Inicia sessió amb el teu compte de Google.
-        </p>
-        <div
-          ref={button}
-          className="google-button"
-          hidden={status !== "ready"}
-        />
-        {status === "loading" && <p role="status">Preparant l’accés…</p>}
-        {status === "checking" && (
-          <p role="status">Verificant el teu compte…</p>
-        )}
-        {status === "unconfigured" && (
-          <p className="error" role="alert">
-            L’accés amb Google encara no està configurat al servidor. Consulta
-            la guia de configuració del projecte.
-          </p>
-        )}
-        {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        )}
-        {["error", "unconfigured"].includes(status) && (
-          <button className="secondary" onClick={() => setRetry((n) => n + 1)}>
-            Tornar-ho a provar
-          </button>
-        )}
-        <div className="login-privacy">
-          <ShieldCheck size={17} />
-          <span>
-            Només el compte autoritzat pot accedir al diari. No demanem accés al
-            teu correu.
-          </span>
-        </div>
-      </section>
-    </main>
-  );
-}
-export function AuthBoundary({ children }) {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    let active = true;
-    let sequence = 0;
-    const check = async () => {
-      const current = ++sequence;
-      try {
-        const result = await api("/auth/me", { notify: false });
-        if (active && current === sequence) {
-          setUser(result.user);
-          setError("");
-        }
-      } catch (e) {
-        if (active && current === sequence) {
-          setUser(null);
-          if (e.status !== 401) setError(e.message);
-        }
-      } finally {
-        if (active) setLoading(false);
-      }
-    };
-    const unauthorized = () => {
-      sequence++;
-      setUser(null);
-    };
-    check();
-    const timer = setInterval(check, 60000);
-    window.addEventListener("focus", check);
-    window.addEventListener("panxa:unauthorized", unauthorized);
-    return () => {
-      active = false;
-      clearInterval(timer);
-      window.removeEventListener("focus", check);
-      window.removeEventListener("panxa:unauthorized", unauthorized);
-    };
-  }, []);
-  const logout = async () => {
-    await api("/auth/logout", { method: "POST", body: {} });
-    window.google?.accounts?.id?.disableAutoSelect();
-    window.dispatchEvent(new Event("panxa:unauthorized"));
+  const logout = () => {
+    session.clear();
+    setUser(null);
+    setConnected(false);
   };
-  if (loading)
-    return (
-      <main className="login-page">
-        <p role="status">Comprovant la sessió…</p>
-      </main>
-    );
+  const panel = (
+    <>
+      <p className="muted">
+        Entra amb Google per obrir el teu diari i desar-lo al teu full privat.
+      </p>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      <button
+        className="primary full"
+        disabled={!ready || busy}
+        onClick={() => {
+          setBusy(true);
+          setError("");
+          try {
+            client.current.requestAccessToken({ prompt: "" });
+          } catch {
+            setBusy(false);
+            setError("No s’ha pogut obrir Google. Torna-ho a provar.");
+          }
+        }}
+      >
+        {busy
+          ? "Connectant…"
+          : user
+            ? "Tornar a connectar"
+            : "Entrar amb Google"}
+      </button>
+      {!ready && error && (
+        <button className="secondary" onClick={() => setRetry((n) => n + 1)}>
+          Tornar-ho a provar
+        </button>
+      )}
+      <p className="small muted">
+        Els registres es desen a Google Sheets. No demanem accés a Gmail. Cal
+        connexió a Internet.
+      </p>
+    </>
+  );
   if (!user)
     return (
-      <>
-        <Login
-          onLogin={(next) => {
-            window.dispatchEvent(new Event("panxa:unauthorized"));
-            setError("");
-            setUser(next);
-          }}
-        />
-        {error && (
-          <p className="auth-connection-error" role="alert">
-            {error}
-          </p>
-        )}
-      </>
+      <main className="login-page">
+        <section className="login-card">
+          <img
+            src={`${import.meta.env.BASE_URL}leaf.svg`}
+            alt=""
+            className="login-logo"
+          />
+          <h1>PANXA</h1>
+          <p className="login-subtitle">El teu diari digestiu</p>
+          {panel}
+        </section>
+      </main>
     );
-  return children({ user, logout });
+  return (
+    <>
+      {children({ user, logout })}
+      {!connected && (
+        <Modal title="Torna a connectar amb Google" onClose={() => {}}>
+          <p>
+            La connexió ha caducat. El formulari es conserva mentre aquesta
+            pàgina continuï oberta.
+          </p>
+          {panel}
+        </Modal>
+      )}
+    </>
+  );
 }
